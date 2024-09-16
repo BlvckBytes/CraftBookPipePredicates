@@ -6,6 +6,8 @@ use of its exposed functionality.
 
 🧨 WARNING: Please keep in mind that this plugin only represents a draft and is not yet ready for proper use.
 
+![Short Preview](readme_images/short_preview.gif)
+
 ## Feature Description
 
 The goal of this little plugin is to hook into the newly added [PipeFilterEvent](https://github.com/EngineHub/CraftBook/pull/1332)
