@@ -1,10 +1,10 @@
 package me.blvckbytes.craft_book_pipe_predicates;
 
+import me.blvckbytes.item_predicate_parser.PredicateHelper;
 import me.blvckbytes.item_predicate_parser.parse.ItemPredicateParseException;
-import me.blvckbytes.item_predicate_parser.parse.PredicateParserFactory;
-import me.blvckbytes.item_predicate_parser.parse.TokenParser;
 import me.blvckbytes.item_predicate_parser.predicate.ItemPredicate;
 import me.blvckbytes.item_predicate_parser.predicate.PredicateState;
+import me.blvckbytes.item_predicate_parser.translation.TranslationLanguage;
 import org.bukkit.inventory.ItemStack;
 
 public class CachedPredicate {
@@ -12,9 +12,10 @@ public class CachedPredicate {
   private ItemPredicate predicate;
   private boolean isValid = false;
 
-  public void update(PredicateParserFactory parserFactory, String expression) {
+  public void update(PredicateHelper predicateHelper, String expression) {
     try {
-      this.predicate = parserFactory.create(TokenParser.parseTokens(expression), false).parseAst();
+      var tokens = predicateHelper.parseTokens(expression);
+      this.predicate = predicateHelper.parsePredicate(TranslationLanguage.ENGLISH_US, tokens);
       this.isValid = true;
     } catch (ItemPredicateParseException e) {
       this.isValid = false;

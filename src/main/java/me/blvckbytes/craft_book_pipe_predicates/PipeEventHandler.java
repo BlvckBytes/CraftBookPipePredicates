@@ -1,7 +1,7 @@
 package me.blvckbytes.craft_book_pipe_predicates;
 
 import com.sk89q.craftbook.mechanics.pipe.PipeFilterEvent;
-import me.blvckbytes.item_predicate_parser.parse.PredicateParserFactory;
+import me.blvckbytes.item_predicate_parser.PredicateHelper;
 import me.blvckbytes.item_predicate_parser.predicate.ItemPredicate;
 import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
@@ -31,12 +31,12 @@ public class PipeEventHandler implements Listener, PredicateCache {
   private static final String PREDICATE_MARKER_LINE_CONTENT = "§6Predicate";
   private static final String PREDICATE_MARKER_LINE_INVALID = "§cPredicate Invalid";
 
-  private final PredicateParserFactory parserFactory;
+  private final PredicateHelper predicateHelper;
   private final NamespacedKey pipePredicateKey, pipeLine2Key, pipeLine3Key;
   private final Map<Block, CachedPredicate> predicateCache;
 
-  public PipeEventHandler(Plugin plugin, PredicateParserFactory parserFactory) {
-    this.parserFactory = parserFactory;
+  public PipeEventHandler(Plugin plugin, PredicateHelper predicateHelper) {
+    this.predicateHelper = predicateHelper;
     this.pipePredicateKey = new NamespacedKey(plugin, "pipe-predicate");
     this.pipeLine2Key = new NamespacedKey(plugin, "pipe-line-2");
     this.pipeLine3Key = new NamespacedKey(plugin, "pipe-line-3");
@@ -78,7 +78,7 @@ public class PipeEventHandler implements Listener, PredicateCache {
 
     var pipePredicate = predicateCache.computeIfAbsent(pistonBlock, key -> {
       var predicate = new CachedPredicate();
-      predicate.update(parserFactory, expression);
+      predicate.update(predicateHelper, expression);
       return predicate;
     });
 

@@ -1,10 +1,9 @@
 package me.blvckbytes.craft_book_pipe_predicates;
 
+import me.blvckbytes.item_predicate_parser.PredicateHelper;
 import me.blvckbytes.item_predicate_parser.parse.ItemPredicateParseException;
-import me.blvckbytes.item_predicate_parser.parse.PredicateParserFactory;
-import me.blvckbytes.item_predicate_parser.parse.TokenParser;
 import me.blvckbytes.item_predicate_parser.predicate.ItemPredicate;
-import me.blvckbytes.item_predicate_parser.token.TokenUtil;
+import me.blvckbytes.item_predicate_parser.translation.TranslationLanguage;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.ComponentBuilder;
@@ -26,7 +25,6 @@ import org.bukkit.inventory.DoubleChestInventory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class PipePredicateCommand implements CommandExecutor, TabCompleter {
@@ -39,11 +37,11 @@ public class PipePredicateCommand implements CommandExecutor, TabCompleter {
   private static final int MAX_COMPLETER_RESULTS = 30;
 
   private final PredicateCache predicateCache;
-  private final PredicateParserFactory parserFactory;
+  private final PredicateHelper predicateHelper;
 
-  public PipePredicateCommand(PredicateCache predicateCache, PredicateParserFactory parserFactory) {
+  public PipePredicateCommand(PredicateCache predicateCache, PredicateHelper predicateHelper) {
     this.predicateCache = predicateCache;
-    this.parserFactory = parserFactory;
+    this.predicateHelper = predicateHelper;
   }
 
   @Override
@@ -100,9 +98,10 @@ public class PipePredicateCommand implements CommandExecutor, TabCompleter {
         ItemPredicate predicate;
 
         try {
-          predicate = parserFactory.create(TokenParser.parseTokens(args, 1), false).parseAst();
+          var tokens = predicateHelper.parseTokens(args, 1);
+          predicate = predicateHelper.parsePredicate(TranslationLanguage.ENGLISH_US, tokens);
         } catch (ItemPredicateParseException e) {
-          player.sendMessage(generateParseExceptionMessage(e));
+          player.sendMessage(predicateHelper.createExceptionMessage(e));
           return true;
         }
 
@@ -136,51 +135,21 @@ public class PipePredicateCommand implements CommandExecutor, TabCompleter {
       return null;
 
     try {
-      var tokens = TokenParser.parseTokens(args, 1);
+      var tokens = predicateHelper.parseTokens(args, 1);
+      var completions = predicateHelper.createCompletion(TranslationLanguage.ENGLISH_US, tokens);
 
-      try {
-        // Allow for missing closing parentheses, as hotbar-previewing would become useless otherwise
-        var currentCommandRepresentation = parserFactory.create(new ArrayList<>(tokens), true).parseAst();
+      if (completions.expandedPreviewOrError() != null)
+        showActionBarMessage(player, completions.expandedPreviewOrError());
 
-        if (currentCommandRepresentation != null)
-          showParseMessage(player, "§a" + currentCommandRepresentation.stringify(false));
-      } catch (ItemPredicateParseException e) {
-        showParseMessage(player, generateParseExceptionMessage(e));
-      }
-
-      // '~' is the last printable char on the ASCII-table, and should thereby come
-      // last, as desired, when the client automatically sorts completions
-      return TokenUtil.createSuggestions(parserFactory.registry, MAX_COMPLETER_RESULTS, excess -> "~ and " + excess + " more", tokens);
+      return completions.suggestions();
     } catch (ItemPredicateParseException e) {
-      showParseMessage(player, generateParseExceptionMessage(e));
+      showActionBarMessage(player, predicateHelper.createExceptionMessage(e));
       return null;
     }
   }
 
-  private void showParseMessage(Player player, String message) {
-    // The action-bar likely makes the best spot for rapidly updating messages
+  private void showActionBarMessage(Player player, String message) {
     player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
-  }
-
-  private String generateParseExceptionMessage(ItemPredicateParseException exception) {
-    var conflictMessage = switch (exception.getConflict()) {
-      case EXPECTED_CORRECT_INTEGER -> "Expected a non-malformed integer";
-      case TOO_MANY_TIME_NOTATION_BLOCKS -> "Do not use more than 3 colon-separated blocks";
-      case EXPECTED_FOLLOWING_INTEGER -> "This predicate requires an integer argument";
-      case EXPECTED_SEARCH_PATTERN -> "Expected a name to search for";
-      case NO_SEARCH_MATCH -> "Found no matches";
-      case MISSING_STRING_TERMINATION -> "String has not been terminated";
-      case MULTIPLE_SEARCH_PATTERN_WILDCARDS -> "Used multiple ? within one argument";
-      case ONLY_SEARCH_PATTERN_WILDCARD -> "Cannot search just for a wildcard";
-      case DOES_NOT_ACCEPT_TIME_NOTATION -> "This argument does not accept time notation";
-      case DOES_NOT_ACCEPT_NON_EQUALS_COMPARISON -> "This argument does not accept comparison notation";
-      case EXPECTED_EXPRESSION_AFTER_OPERATOR -> "This operator has to to be followed up by another expression";
-      case EXPECTED_OPENING_PARENTHESIS -> "Expected a opening parenthesis";
-      case EXPECTED_CLOSING_PARENTHESIS -> "Expected a closing parenthesis";
-      case EMPTY_OR_BLANK_QUOTED_STRING -> "Strings are not allowed to be blank";
-    };
-
-    return "§c" + conflictMessage + "§7: " + exception.highlightedInput("§c", "§4");
   }
 
   private @Nullable Block resolvePistonBlock(Block block) {
