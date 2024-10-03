@@ -9,19 +9,11 @@ import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.ComponentBuilder;
 import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.TextComponent;
-import net.md_5.bungee.api.chat.hover.content.Text;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.block.*;
-import org.bukkit.block.data.Directional;
-import org.bukkit.block.data.type.Piston;
-import org.bukkit.block.data.type.WallSign;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.DoubleChestInventory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,19 +21,14 @@ import java.util.List;
 
 public class PipePredicateCommand implements CommandExecutor, TabCompleter {
 
-  private static final BlockFace[] POSSIBLE_CONTAINER_PISTON_FACES = {
-    BlockFace.UP, BlockFace.DOWN,
-    BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST
-  };
-
-  private static final int MAX_COMPLETER_RESULTS = 30;
-
-  private final PredicateCache predicateCache;
+  private final PredicateDataHandler dataHandler;
   private final PredicateHelper predicateHelper;
+  private final TranslationLanguage language;
 
-  public PipePredicateCommand(PredicateCache predicateCache, PredicateHelper predicateHelper) {
-    this.predicateCache = predicateCache;
+  public PipePredicateCommand(PredicateDataHandler dataHandler, PredicateHelper predicateHelper, TranslationLanguage language) {
+    this.dataHandler = dataHandler;
     this.predicateHelper = predicateHelper;
+    this.language = language;
   }
 
   @Override
@@ -56,42 +43,72 @@ public class PipePredicateCommand implements CommandExecutor, TabCompleter {
       return true;
     }
 
-    var pistonBlock = resolvePistonBlock(player.getTargetBlock(null, 5));
+    var pistonBlock = BlockUtility.resolvePistonBlock(player.getTargetBlock(null, 5));
 
     if (pistonBlock == null) {
       player.sendMessage("§cPlease look at a pipe-output (container, piston or sign)");
       return true;
     }
 
+    var pistonSign = BlockUtility.getPistonSign(pistonBlock);
+
+    if (pistonSign == null) {
+      player.sendMessage("§cCould not locate pipe-sign");
+      return true;
+    }
+
     switch (action) {
       case REMOVE -> {
-        if (predicateCache.removePredicate(pistonBlock)) {
-          player.sendMessage("§aPredicate removed successfully");
+        PredicateData predicateData;
+
+        if ((predicateData = dataHandler.remove(pistonSign)) == null) {
+          player.sendMessage("§cHad no predicate stored");
           return true;
         }
+
+        predicateData.restoreLines(pistonSign);
+
+        player.sendMessage("§aPredicate removed successfully");
+        return true;
       }
 
       case GET -> {
-        var expression = predicateCache.retrievePredicate(pistonBlock);
+        var predicateData = dataHandler.access(pistonSign);
 
-        if (expression != null) {
-          if (expression.isBlank()) {
-            player.sendMessage("§cThere's currently no predicate stored on this pipe");
-            return true;
-          }
-
-          var expressionComponent = new TextComponent("§a" + expression);
-          expressionComponent.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new Text("§aClick to suggest edit-command")));
-          expressionComponent.setClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/pipepredicate set " + expression));
-
-          var messageComponent = new ComponentBuilder()
-            .append("§7Current predicate: ")
-            .append(expressionComponent)
-            .build();
-
-          player.spigot().sendMessage(messageComponent);
+        if (predicateData == null) {
+          player.sendMessage("§cThere's currently no predicate stored on this pipe");
           return true;
         }
+
+        player.sendMessage("§8§m------------------------------");
+
+        player.spigot().sendMessage(
+          new ComponentBuilder("§7Current token predicate: ")
+            .append(
+              new ComponentBuilder("§a" + predicateData.tokensPredicate())
+                .event(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/" + label + " set " + predicateData.tokensPredicate()))
+                .event(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ComponentBuilder("§aClick to suggest").create()))
+                .create()
+            )
+            .create()
+        );
+
+        player.spigot().sendMessage(
+          new ComponentBuilder("§7Current expanded predicate: ")
+            .append(
+              new ComponentBuilder("§a" + predicateData.expandedPredicate())
+                .event(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/" + label + " set " + predicateData.expandedPredicate()))
+                .event(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ComponentBuilder("§aClick to suggest").create()))
+                .create()
+            )
+            .create()
+        );
+
+        if (predicateData.parseException() != null)
+          player.sendMessage("§7Error: §c" + predicateHelper.createExceptionMessage(predicateData.parseException()));
+
+        player.sendMessage("§8§m------------------------------");
+        return true;
       }
 
       case SET -> {
@@ -99,7 +116,7 @@ public class PipePredicateCommand implements CommandExecutor, TabCompleter {
 
         try {
           var tokens = predicateHelper.parseTokens(args, 1);
-          predicate = predicateHelper.parsePredicate(TranslationLanguage.ENGLISH_US, tokens);
+          predicate = predicateHelper.parsePredicate(language, tokens);
         } catch (ItemPredicateParseException e) {
           player.sendMessage(predicateHelper.createExceptionMessage(e));
           return true;
@@ -110,17 +127,27 @@ public class PipePredicateCommand implements CommandExecutor, TabCompleter {
           return true;
         }
 
-        var expression = predicateCache.storePredicate(pistonBlock, predicate);
+        var existingPredicateData = dataHandler.access(pistonSign);
 
-        if (expression != null) {
-          player.sendMessage("§7Set predicate: §a" + expression);
-          return true;
-        }
+        PredicateData newPredicateData;
+
+        if (existingPredicateData != null)
+          newPredicateData = PredicateData.makeUpdate(predicate, existingPredicateData);
+        else
+          newPredicateData = PredicateData.makeInitial(predicate, pistonSign);
+
+        pistonSign.setLine(0, "§" + MarkerConstants.PREDICATE_OK_COLOR + MarkerConstants.PREDICATE_MARKER);
+        pistonSign.setLine(2, "");
+        pistonSign.setLine(3, "");
+        pistonSign.update(true, false);
+
+        dataHandler.store(newPredicateData, pistonSign);
+
+        player.sendMessage("§7Set predicate: §a" + predicate.stringify(true));
+        return true;
       }
+      default -> { return true; }
     }
-
-    player.sendMessage("§cThis is not a pipe output in predicate mode");
-    return true;
   }
 
   @Override
@@ -150,68 +177,5 @@ public class PipePredicateCommand implements CommandExecutor, TabCompleter {
 
   private void showActionBarMessage(Player player, String message) {
     player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
-  }
-
-  private @Nullable Block resolvePistonBlock(Block block) {
-    if (block.getType() == Material.PISTON)
-      return block;
-
-    var blockData = block.getBlockData();
-
-    if (blockData instanceof Sign || blockData instanceof WallSign) {
-      BlockFace mountingFace = BlockFace.DOWN;
-
-      if (blockData instanceof Directional directional)
-        mountingFace = directional.getFacing().getOppositeFace();
-
-      var mountingBlock = block.getRelative(mountingFace);
-      return mountingBlock.getType() == Material.PISTON ? mountingBlock : null;
-    }
-
-    if (!(block.getState() instanceof Container container))
-      return null;
-
-    var containerInventory = container.getInventory();
-
-    Location location;
-
-    if (containerInventory instanceof DoubleChestInventory doubleChestInventory) {
-      Block locationBlock;
-
-      if ((location = doubleChestInventory.getLeftSide().getLocation()) != null) {
-        if ((locationBlock = getAttachedPiston(location.getBlock())) != null)
-          return locationBlock;
-      }
-
-      if ((location = doubleChestInventory.getRightSide().getLocation()) != null) {
-        if ((locationBlock = getAttachedPiston(location.getBlock())) != null)
-          return locationBlock;
-      }
-
-      return null;
-    }
-
-    if ((location = container.getInventory().getLocation()) != null)
-      return getAttachedPiston(location.getBlock());
-
-    return null;
-  }
-
-  private @Nullable Block getAttachedPiston(Block containerBlock) {
-    for (var currentFace : POSSIBLE_CONTAINER_PISTON_FACES) {
-      var currentBlock = containerBlock.getRelative(currentFace);
-
-      if (currentBlock.getType() != Material.PISTON)
-        continue;
-
-      var pistonFacing = ((Piston) currentBlock.getBlockData()).getFacing();
-
-      if (pistonFacing != currentFace.getOppositeFace())
-        continue;
-
-      return currentBlock;
-    }
-
-    return null;
   }
 }

@@ -2,7 +2,7 @@ name: CraftBookPipePredicates
 main: me.blvckbytes.craft_book_pipe_predicates.CraftBookPipePredicatesPlugin
 version: 0.1
 author: BlvckBytes
-api-version: 1.21
+api-version: 1.14
 depend: [CraftBook, ItemPredicateParser]
 commands:
   pipepredicate:
