@@ -6,15 +6,12 @@ import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Container;
 import org.bukkit.block.Sign;
-import org.bukkit.block.data.Directional;
 import org.bukkit.block.data.type.Piston;
 import org.bukkit.block.data.type.WallSign;
 import org.bukkit.inventory.DoubleChestInventory;
 import org.jetbrains.annotations.Nullable;
 
 public class BlockUtility {
-
-  // TODO: These could use a review and some test-cases... :)
 
   private static final BlockFace[] POSSIBLE_CONTAINER_PISTON_FACES = {
     BlockFace.UP, BlockFace.DOWN,
@@ -47,19 +44,28 @@ public class BlockUtility {
 
     var blockData = block.getBlockData();
 
-    if (blockData instanceof Sign || blockData instanceof WallSign) {
-      BlockFace mountingFace = BlockFace.DOWN;
+    if (blockData instanceof WallSign wallSign) {
+      var mountingBlock = block.getRelative(wallSign.getFacing().getOppositeFace());
 
-      if (blockData instanceof Directional directional)
-        mountingFace = directional.getFacing().getOppositeFace();
+      if (mountingBlock.getType() == Material.PISTON)
+        return mountingBlock;
 
-      var mountingBlock = block.getRelative(mountingFace);
+      if (mountingBlock.getState() instanceof Container container)
+        return getContainerAttachedPiston(container);
+    }
+
+    if (blockData instanceof org.bukkit.block.data.type.Sign) {
+      var mountingBlock = block.getRelative(BlockFace.DOWN);
       return mountingBlock.getType() == Material.PISTON ? mountingBlock : null;
     }
 
-    if (!(block.getState() instanceof Container container))
-      return null;
+    if (block.getState() instanceof Container container)
+      return getContainerAttachedPiston(container);
 
+    return null;
+  }
+
+  private static @Nullable Block getContainerAttachedPiston(Container container) {
     var containerInventory = container.getInventory();
 
     Location location;
@@ -68,12 +74,12 @@ public class BlockUtility {
       Block locationBlock;
 
       if ((location = doubleChestInventory.getLeftSide().getLocation()) != null) {
-        if ((locationBlock = getAttachedPiston(location.getBlock())) != null)
+        if ((locationBlock = getBlockAttachedPiston(location.getBlock())) != null)
           return locationBlock;
       }
 
       if ((location = doubleChestInventory.getRightSide().getLocation()) != null) {
-        if ((locationBlock = getAttachedPiston(location.getBlock())) != null)
+        if ((locationBlock = getBlockAttachedPiston(location.getBlock())) != null)
           return locationBlock;
       }
 
@@ -81,12 +87,12 @@ public class BlockUtility {
     }
 
     if ((location = container.getInventory().getLocation()) != null)
-      return getAttachedPiston(location.getBlock());
+      return getBlockAttachedPiston(location.getBlock());
 
     return null;
   }
 
-  public static @Nullable Block getAttachedPiston(Block containerBlock) {
+  public static @Nullable Block getBlockAttachedPiston(Block containerBlock) {
     for (var currentFace : POSSIBLE_CONTAINER_PISTON_FACES) {
       var currentBlock = containerBlock.getRelative(currentFace);
 
